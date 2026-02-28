@@ -1190,7 +1190,7 @@ function renderCart() {
     let afterTax = beforeTax + tax;
 
     // ===== 計算折扣/低消 =====
-    let discountValue = Number(document.getElementById("discount").value) || 0;
+let discountValue = Number(document.getElementById("discount").value) || 0;
 let actualAmount = afterTax - discountValue;
 
 let people = Number(document.getElementById("peopleCount")?.value) || 0;
@@ -1199,15 +1199,14 @@ let minConsume = people * perMin;
 
 let receivable = 0;
 
-// ✅ 新規則
-if (perMin < 400 && perMin > 0) {
-    // 每人低消低於 400
+// ✅ 新規則（300 為界）
+if (perMin <= 300 && perMin > 0) {
+    // 低消 <= 300 → 低消 + 消費
     receivable = actualAmount + minConsume;
 } else {
-    // 維持原本規則
+    // > 300 → 原本邏輯
     receivable = Math.max(actualAmount, minConsume);
 }
-
     // ===== 更新 UI =====
     document.getElementById("beforeTax").innerText = formatNumber(beforeTax);
     document.getElementById("taxAmount").innerText = formatNumber(tax);
@@ -1737,7 +1736,19 @@ document.getElementById("posCheckout").onclick = async function () {
     }
 
     let actual = parseNumber(document.getElementById("afterTax").innerText) - (Number(document.getElementById("discount").value) || 0);
-    let min = getMinConsumeTotal();
+
+let people = Number(document.getElementById("peopleCount")?.value) || 0;
+let perMin = Number(document.getElementById("minConsumeInput")?.value) || 0;
+let min = people * perMin;
+
+let finalAmount;
+
+// ✅ 新規則（300 為界）
+if (perMin <= 300 && perMin > 0) {
+    finalAmount = actual + min;
+} else {
+    finalAmount = Math.max(actual, min);
+}
 
     // 如果消費金額不足，顯示最低消費提示框
     if (actual < min && !allowMinConsumeCheckout) {
