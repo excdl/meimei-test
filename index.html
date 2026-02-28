@@ -1190,23 +1190,8 @@ function renderCart() {
     let afterTax = beforeTax + tax;
 
     // ===== 計算折扣/低消 =====
-let discountValue = Number(document.getElementById("discount").value) || 0;
-let actualAmount = afterTax - discountValue;
-
-let people = Number(document.getElementById("peopleCount")?.value) || 0;
-let perMin = Number(document.getElementById("minConsumeInput")?.value) || 0;
-let minConsume = people * perMin;
-
-let receivable = 0;
-
-// ✅ 新規則（300 為界）
-if (perMin <= 300 && perMin > 0) {
-    // 低消 <= 300 → 低消 + 消費
-    receivable = actualAmount + minConsume;
-} else {
-    // > 300 → 原本邏輯
-    receivable = Math.max(actualAmount, minConsume);
-}
+const result = calculateFinalAmount(afterTax);
+let receivable = result.finalAmount;
     // ===== 更新 UI =====
     document.getElementById("beforeTax").innerText = formatNumber(beforeTax);
     document.getElementById("taxAmount").innerText = formatNumber(tax);
@@ -1546,7 +1531,42 @@ function getMinConsumeTotal() {
 document.getElementById("minConsumeInput").addEventListener("input", () => {
   renderCart();
 });
+function calculateFinalAmount(afterTaxAmount) {
 
+    const discountValue = Number(document.getElementById("discount").value) || 0;
+    const actual = afterTaxAmount - discountValue;
+
+    const people = Number(document.getElementById("peopleCount")?.value) || 0;
+    const perMin = Number(document.getElementById("minConsumeInput")?.value) || 0;
+    const minTotal = people * perMin;
+
+    let finalAmount = 0;
+    let needConfirm = false;
+
+    // ===== 新規則 =====
+    if (perMin <= 300 && perMin > 0) {
+
+        // 低消 ≤ 300 → 低消 + 消費
+        finalAmount = actual + minTotal;
+
+    } else {
+
+        // > 300 才需要比較
+        if (actual < minTotal) {
+            finalAmount = minTotal;
+            needConfirm = true;   // 是否要跳提示
+        } else {
+            finalAmount = actual;
+        }
+    }
+
+    return {
+        actual,
+        minTotal,
+        finalAmount,
+        needConfirm
+    };
+}
 
 function showMinConsumeConfirm(actual,min){
   document.getElementById("minConsumeConfirmText").innerHTML =
@@ -1715,6 +1735,7 @@ async function printerIsReady() {
 }
 
 // ===== 結帳：先入帳 → 再嘗試列印到自動抓取的印表機 =====
+// ===== 結帳：先入帳 → 再嘗試列印到自動抓取的印表機 =====
 document.getElementById("posCheckout").onclick = async function () {
 
     const checkoutBtn = document.getElementById("posCheckout");
@@ -1726,58 +1747,63 @@ document.getElementById("posCheckout").onclick = async function () {
     checkoutBtn.disabled = true;
     checkoutBtn.innerText = "結帳中...";
 
-    // ===== 新增付款方式檢查 =====
+    // ===== 付款方式檢查 =====
     const paymentMethod = document.getElementById("posPayment").value;
     if (!paymentMethod) {
         alert("請先選擇付款方式！");
-        checkoutBtn.innerText = originalText; // 恢復按鈕文字
-        checkoutBtn.disabled = false; // 恢復按鈕可點擊
-        return; // 停止結帳流程
-    }
-
-    let actual = parseNumber(document.getElementById("afterTax").innerText) - (Number(document.getElementById("discount").value) || 0);
-
-let people = Number(document.getElementById("peopleCount")?.value) || 0;
-let perMin = Number(document.getElementById("minConsumeInput")?.value) || 0;
-let min = people * perMin;
-
-let finalAmount;
-
-// ✅ 新規則（300 為界）
-if (perMin <= 300 && perMin > 0) {
-    finalAmount = actual + min;
-} else {
-    finalAmount = Math.max(actual, min);
-}
-
-    // 如果消費金額不足，顯示最低消費提示框
-    if (actual < min && !allowMinConsumeCheckout) {
-        // 顯示消費金額不足的提示框
-        const message = `您的消費金額為 ${actual} 元，低於最低消費額 ${min} 元，是否確認結帳？`;
-        if (confirm(message)) {
-            // 用戶選擇確認結帳，即使未達最低消費，強制使用最低消費金額
-            allowMinConsumeCheckout = true; // 設置允許最低消費結帳
-            document.getElementById("afterTax").innerText = min; // 強制將消費金額設為最低消費金額
-            startCheckoutFlow(checkoutBtn, originalText); // 直接進行結帳流程
-        } else {
-            // 用戶選擇取消結帳，恢復結帳按鈕
-            checkoutBtn.innerText = originalText;
-            checkoutBtn.disabled = false;
-        }
-        return; // 停止結帳流程
-    }
-
-    allowMinConsumeCheckout = false; // 預設不允許最低消費結帳
-
-    if (posCart.length === 0) {
-        alert("購物車是空的。");
-        checkoutBtn.innerText = originalText; // 恢復按鈕文字
-        checkoutBtn.disabled = false; // 恢復按鈕可點擊
+        checkoutBtn.innerText = originalText;
+        checkoutBtn.disabled = false;
         return;
     }
 
-    // 如果沒有進入最低消費檢查，則直接繼續結帳流程
-    startCheckoutFlow(checkoutBtn, originalText);
+    // ===== 空購物車檢查 =====
+    if (posCart.length === 0) {
+        alert("購物車是空的。");
+        checkoutBtn.innerText = originalText;
+        checkoutBtn.disabled = false;
+        return;
+    }
+
+    // ===== 使用統一低消計算 =====
+    const afterTax = parseNumber(document.getElementById("afterTax").innerText);
+    const result = calculateFinalAmount(afterTax);
+
+    // 只有 >300 且 未達低消 才需要確認
+    if (result.needConfirm && !allowMinConsumeCheckout) {
+
+        const message = `您的消費金額為 ${result.actual} 元，
+低於最低消費額 ${result.minTotal} 元，是否確認結帳？`;
+
+        if (!confirm(message)) {
+            checkoutBtn.innerText = originalText;
+            checkoutBtn.disabled = false;
+            return;
+        }
+    }
+
+    allowMinConsumeCheckout = false;
+
+    // ===== 更新最終應收金額（避免畫面不同步）=====
+    document.getElementById("posTotal").innerText =
+        formatNumber(result.finalAmount);
+
+    document.getElementById("posTotal").dataset.value =
+        result.finalAmount;
+
+    try {
+
+        // ===== 先寫入 Google Sheet =====
+        await sendCheckoutToSheet();
+
+        // ===== 再執行原本結帳流程（列印等）=====
+        await startCheckoutFlow(checkoutBtn, originalText);
+
+    } catch (err) {
+        console.error(err);
+        alert("結帳發生錯誤，請稍後再試。");
+        checkoutBtn.innerText = originalText;
+        checkoutBtn.disabled = false;
+    }
 };
 
 // 處理結帳流程的函式
