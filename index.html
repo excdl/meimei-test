@@ -1728,7 +1728,7 @@ async function printerIsReady() {
     }
 }
 
-// ===== 結帳按鈕 handler（低消提示直接顯示最終金額） =====
+// ===== 結帳按鈕 handler（低消 300 特殊處理） =====
 (function () {
     const checkoutBtn = document.getElementById("posCheckout");
 
@@ -1754,14 +1754,6 @@ async function printerIsReady() {
             return;
         }
 
-        // ===== 購物車檢查 =====
-        if (posCart.length === 0) {
-            alert("購物車是空的。");
-            newBtn.innerText = originalText;
-            newBtn.disabled = false;
-            return;
-        }
-
         // ===== 低消計算 =====
         const afterTax = parseNumber(document.getElementById("afterTax").innerText);
         const people = Number(document.getElementById("peopleCount")?.value) || 0;
@@ -1778,7 +1770,7 @@ async function printerIsReady() {
         }
 
         // ===== 消費不足提示，只跳一次，顯示最終金額 =====
-        if (afterTax < minTotal && !minConsumeConfirmed) {
+        if (perMin > 0 && afterTax < minTotal && !minConsumeConfirmed) {
             const message = `您的消費金額為 ${afterTax} 元，低於最低消費額 ${minTotal} 元。\n` +
                             `按照新規則，結帳金額將為 ${finalAmount} 元。\n\n是否確認結帳？`;
             if (!confirm(message)) {
@@ -1793,9 +1785,17 @@ async function printerIsReady() {
         document.getElementById("posTotal").innerText = finalAmount;
         document.getElementById("posTotal").dataset.value = finalAmount;
 
+        // ===== 購物車為空處理 =====
+        if (posCart.length === 0 && perMin > 300) {
+            alert("購物車是空的。");
+            newBtn.innerText = originalText;
+            newBtn.disabled = false;
+            return;
+        }
+
         // ===== 呼叫結帳流程 =====
         try {
-            await startCheckoutFlow(newBtn, originalText);
+            await startCheckoutFlow(newBtn, originalText, finalAmount);
             minConsumeConfirmed = false; // 🔹 結帳完成後重置旗標
         } catch (err) {
             console.error("結帳流程發生錯誤：", err);
@@ -1804,6 +1804,7 @@ async function printerIsReady() {
         }
     });
 })();
+    
 // 處理結帳流程的函式
 async function startCheckoutFlow(checkoutBtn, originalText) {
     try {
