@@ -1734,11 +1734,9 @@ async function printerIsReady() {
     }
 }
 
-// ===== 結帳：先入帳 → 再嘗試列印到自動抓取的印表機 =====
 document.getElementById("posCheckout").onclick = async function () {
 
     const checkoutBtn = document.getElementById("posCheckout");
-
     if (checkoutBtn.disabled) return;
 
     const originalText = checkoutBtn.innerText;
@@ -1764,7 +1762,9 @@ document.getElementById("posCheckout").onclick = async function () {
     const afterTax = parseNumber(document.getElementById("afterTax").innerText);
     const result = calculateFinalAmount(afterTax);
 
+    // ⚠️ 只有 >300 且 未達低消 才會跳提示
     if (result.needConfirm) {
+
         const message = `您的消費金額為 ${result.actual} 元，
 低於最低消費額 ${result.minTotal} 元，是否確認結帳？`;
 
@@ -1775,7 +1775,7 @@ document.getElementById("posCheckout").onclick = async function () {
         }
     }
 
-    // 更新最終金額
+    // 更新最終應收金額
     document.getElementById("posTotal").innerText =
         formatNumber(result.finalAmount);
 
@@ -1783,9 +1783,7 @@ document.getElementById("posCheckout").onclick = async function () {
         result.finalAmount;
 
     try {
-        // ⚠️ 只呼叫一次（讓 startCheckoutFlow 負責寫入）
         await startCheckoutFlow(checkoutBtn, originalText);
-
     } catch (err) {
         console.error(err);
         alert("結帳發生錯誤，請稍後再試。");
