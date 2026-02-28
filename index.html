@@ -1735,19 +1735,16 @@ async function printerIsReady() {
 }
 
 // ===== 結帳：先入帳 → 再嘗試列印到自動抓取的印表機 =====
-// ===== 結帳：先入帳 → 再嘗試列印到自動抓取的印表機 =====
 document.getElementById("posCheckout").onclick = async function () {
 
     const checkoutBtn = document.getElementById("posCheckout");
 
-    // 防止連續點擊
     if (checkoutBtn.disabled) return;
 
     const originalText = checkoutBtn.innerText;
     checkoutBtn.disabled = true;
     checkoutBtn.innerText = "結帳中...";
 
-    // ===== 付款方式檢查 =====
     const paymentMethod = document.getElementById("posPayment").value;
     if (!paymentMethod) {
         alert("請先選擇付款方式！");
@@ -1756,7 +1753,6 @@ document.getElementById("posCheckout").onclick = async function () {
         return;
     }
 
-    // ===== 空購物車檢查 =====
     if (posCart.length === 0) {
         alert("購物車是空的。");
         checkoutBtn.innerText = originalText;
@@ -1764,13 +1760,11 @@ document.getElementById("posCheckout").onclick = async function () {
         return;
     }
 
-    // ===== 使用統一低消計算 =====
+    // ===== 統一低消計算 =====
     const afterTax = parseNumber(document.getElementById("afterTax").innerText);
     const result = calculateFinalAmount(afterTax);
 
-    // 只有 >300 且 未達低消 才需要確認
-    if (result.needConfirm && !allowMinConsumeCheckout) {
-
+    if (result.needConfirm) {
         const message = `您的消費金額為 ${result.actual} 元，
 低於最低消費額 ${result.minTotal} 元，是否確認結帳？`;
 
@@ -1781,9 +1775,7 @@ document.getElementById("posCheckout").onclick = async function () {
         }
     }
 
-    allowMinConsumeCheckout = false;
-
-    // ===== 更新最終應收金額（避免畫面不同步）=====
+    // 更新最終金額
     document.getElementById("posTotal").innerText =
         formatNumber(result.finalAmount);
 
@@ -1791,11 +1783,7 @@ document.getElementById("posCheckout").onclick = async function () {
         result.finalAmount;
 
     try {
-
-        // ===== 先寫入 Google Sheet =====
-        await sendCheckoutToSheet();
-
-        // ===== 再執行原本結帳流程（列印等）=====
+        // ⚠️ 只呼叫一次（讓 startCheckoutFlow 負責寫入）
         await startCheckoutFlow(checkoutBtn, originalText);
 
     } catch (err) {
@@ -1805,7 +1793,6 @@ document.getElementById("posCheckout").onclick = async function () {
         checkoutBtn.disabled = false;
     }
 };
-
 // 處理結帳流程的函式
 async function startCheckoutFlow(checkoutBtn, originalText) {
     try {
