@@ -1822,12 +1822,11 @@ document.getElementById("posCheckout").onclick = async function () {
 
             allowMinConsumeCheckout = true;
             document.getElementById("afterTax").innerText = minTotal;
-            updateFinalAmountAndAlert();
         } else {
             allowMinConsumeCheckout = false;
         }
 
-        // 購物車為 0 時判斷（僅在低消 > 300 才阻止）
+        // 購物車為 0 判斷：低消 ≤ 300 可結帳，高於 300 才阻止
         if (posCart.length === 0 && perMin > 300) {
             alert("❌ 購物車是空的，無法結帳！");
             return resetBtn();
@@ -1843,94 +1842,15 @@ document.getElementById("posCheckout").onclick = async function () {
     }
 };
 
-// ===== 結帳流程 =====
+// ===== 結帳流程（無列印功能）=====
 async function startCheckoutFlow(checkoutBtn, originalText) {
     try {
         // Step 1：結帳寫入試算表
         await sendCheckoutToSheet();
         setTimeout(updateTodaySales, 0);
 
-        // ===== 小票列印 =====
-        const PRINTER_PROFILE = {
-            "58": { charsPerLine: 32, nameWidth: 14, qtyWidth: 6, priceWidth: 6, subWidth: 6 },
-            "80": { charsPerLine: 42, nameWidth: 20, qtyWidth: 6, priceWidth: 8, subWidth: 8 }
-        };
-
-        const receiptPayload = {
-            storeName: "生鮮 POS",
-            datetime: new Date().toLocaleString(),
-            payment: document.getElementById("posPayment").value,
-            openCashDrawer: true,
-            items: posCart.map(item => {
-                let subtotal = item.quantity * item.price;
-                let discountText = "";
-                let discountAmount = 0;
-                if (item.discount) {
-                    switch (item.discount.type) {
-                        case "第二件減10":
-                            discountAmount = Math.floor(item.quantity / 2) * 10;
-                            subtotal -= discountAmount;
-                            discountText = "第二件減10";
-                            break;
-                        case "買二送一":
-                            discountAmount = Math.floor(item.quantity / 3) * item.price;
-                            subtotal -= discountAmount;
-                            discountText = "買二送一";
-                            break;
-                        case "買一送一":
-                            discountAmount = Math.floor(item.quantity / 2) * item.price;
-                            subtotal -= discountAmount;
-                            discountText = "買一送一";
-                            break;
-                        case "第二件6折":
-                            discountAmount = Math.floor(item.quantity / 2) * item.price * 0.4;
-                            subtotal -= discountAmount;
-                            discountText = "第二件6折";
-                            break;
-                        default:
-                            subtotal *= item.discount.rate || 1;
-                            discountAmount = item.price * item.quantity * (1 - (item.discount.rate || 1));
-                            discountText = `折扣${(item.discount.rate || 1) * 100}%`;
-                            break;
-                    }
-                }
-                return { name: item.name, qty: item.quantity, price: item.price, subtotal, discountText, discountAmount };
-            }),
-            summary: {
-                discount: document.getElementById("discount").value || 0,
-                tax: document.getElementById("taxAmount")?.innerText || 0,
-                total: document.getElementById("posTotal")?.innerText || 0
-            }
-        };
-
-        // 列印流程獨立 try/catch，不影響結帳成功
-        if (window.qz) {
-            setTimeout(async () => {
-                try {
-                    const printers = await qz.printers.find();
-                    await Promise.all(printers.map(async (printerName) => {
-                        const profile = /80/.test(printerName) ? PRINTER_PROFILE["80"] : PRINTER_PROFILE["58"];
-                        const receiptText = buildReceiptText(receiptPayload, profile);
-                        const esc = [
-                            '\x1B\x40', '\x1B\x61\x01', "生鮮 POS 小票\n",
-                            '\x1B\x61\x00', receiptText + "\n",
-                            '\x1B\x64\x02', '\x1B\x70\x00\x3C\xFF', '\x1D\x56\x42\x03'
-                        ];
-                        const config = qz.configs.create(printerName);
-                        await qz.print(config, [{ type: 'raw', format: 'command', data: esc.join('') }]);
-                        console.log(`✅ 列印完成：${printerName}`);
-                    }));
-                } catch (err) {
-                    console.error("列印失敗", err);
-                    alert("⚠️ 結帳成功，但列印失敗，請檢查印表機");
-                }
-            }, 0);
-        } else if (window.webkit?.messageHandlers?.posPrint) {
-            window.webkit.messageHandlers.posPrint.postMessage(receiptPayload);
-        }
-
         // ⭐ 只 alert 結帳完成一次
-        alert("✅ 結帳完成，已送出列印");
+        alert("✅ 結帳完成");
 
         // ===== 結帳後清空欄位 =====
         posCart = [];
@@ -1954,7 +1874,6 @@ async function startCheckoutFlow(checkoutBtn, originalText) {
         checkoutBtn.disabled = false;
     }
 }
-  
 
 </script>
 
