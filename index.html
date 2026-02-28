@@ -611,17 +611,8 @@ button{cursor:pointer;outline:none;transition:0.2s;}
     </div>
     <div id="posCart"></div>
   
- <!-- ===== 業代 / 人數 / 低消 同行 ===== -->
+ <!-- ===== 人數 / 低消 / 業代 同行 ===== -->
 <div id="tableInfo" style="margin:8px 0; font-size:13.2px; display:flex; align-items:center; gap:10px; flex-wrap:nowrap;">
-
-  <label style="white-space:nowrap;">
-    業代：
-    <input id="salesInput"
-           list="salesList"
-           placeholder="請選擇業代"
-           style="width:132px; font-size:13.2px; padding:2px 4px;">
-    <datalist id="salesList"></datalist>
-  </label>
 
   <label style="white-space:nowrap;">
     人數：
@@ -636,10 +627,17 @@ button{cursor:pointer;outline:none;transition:0.2s;}
     元/人
   </label>
 
+  <label style="white-space:nowrap;">
+    業代：
+    <input id="salesInput"
+           list="salesList"
+           placeholder="請選擇業代"
+           style="width:132px; font-size:13.2px; padding:2px 4px;">
+    <datalist id="salesList"></datalist>
+  </label>
+
 </div>
-
-
-  
+ 
   <div id="taxContainer">
   <button id="taxIncluded" class="active" onclick="setTax('應稅')">應稅</button>
   <button id="taxExempt" onclick="setTax('免稅')">免稅</button>
@@ -1008,8 +1006,7 @@ function renderProducts(category = null, search = "") {
   "| 全物件 =",
   p
 );
-
-            
+          
             const card = document.createElement("div");
             card.className = "product-card";
             card.innerHTML = `
@@ -1093,7 +1090,6 @@ function addPOSItem(p, forceStore = false) {
     renderCart();
 }
 
-
 /*********************************
  * ===== 初始化付款方式 =====
  *********************************/
@@ -1130,7 +1126,6 @@ function initPOSButtons() {
 }
 
 document.addEventListener("DOMContentLoaded", initPOSButtons);
-
 
 /*********************************
  * ===== 渲染購物車（原邏輯保留）=====
@@ -1216,7 +1211,6 @@ let receivable = result.finalAmount;
         checkoutBtn.classList.remove("minAlert");
     }
 }
-
 
 function updateChange() {
     const paymentMethod = document.getElementById("posPayment").value;
@@ -1736,61 +1730,73 @@ async function printerIsReady() {
 
 document.getElementById("posCheckout").onclick = async function () {
 
-    const checkoutBtn = document.getElementById("posCheckout");
-    if (checkoutBtn.disabled) return;
+    // 取得結帳按鈕
+const checkoutBtn = document.getElementById("posCheckout");
 
-    const originalText = checkoutBtn.innerText;
-    checkoutBtn.disabled = true;
-    checkoutBtn.innerText = "結帳中...";
+// 🔥 移除所有舊 click 事件
+const newBtn = checkoutBtn.cloneNode(true);
+checkoutBtn.parentNode.replaceChild(newBtn, checkoutBtn);
+
+// 🔥 重新綁定 click
+newBtn.addEventListener("click", async function () {
+
+    if (newBtn.disabled) return;
+
+    const originalText = newBtn.innerText;
+    newBtn.disabled = true;
+    newBtn.innerText = "結帳中...";
 
     const paymentMethod = document.getElementById("posPayment").value;
     if (!paymentMethod) {
         alert("請先選擇付款方式！");
-        checkoutBtn.innerText = originalText;
-        checkoutBtn.disabled = false;
+        newBtn.innerText = originalText;
+        newBtn.disabled = false;
         return;
     }
 
     if (posCart.length === 0) {
         alert("購物車是空的。");
-        checkoutBtn.innerText = originalText;
-        checkoutBtn.disabled = false;
+        newBtn.innerText = originalText;
+        newBtn.disabled = false;
         return;
     }
 
-    // ===== 統一低消計算 =====
+    // 計算低消
     const afterTax = parseNumber(document.getElementById("afterTax").innerText);
-    const result = calculateFinalAmount(afterTax);
+    const people = Number(document.getElementById("peopleCount")?.value) || 0;
+    const perMin = Number(document.getElementById("minConsumeInput")?.value) || 0;
+    const minTotal = people * perMin;
 
-    // ⚠️ 只有 >300 且 未達低消 才會跳提示
-    if (result.needConfirm) {
+    let finalAmount = 0;
+    let needConfirm = false;
 
-        const message = `您的消費金額為 ${result.actual} 元，
-低於最低消費額 ${result.minTotal} 元，是否確認結帳？`;
+    if (perMin > 0 && perMin <= 300) {
+        finalAmount = afterTax + minTotal;
+    } else {
+        finalAmount = Math.max(afterTax, minTotal);
+    }
 
+    if (afterTax < minTotal) {
+        needConfirm = true;
+    }
+
+    if (needConfirm) {
+        const message = `您的消費金額為 ${afterTax} 元，低於最低消費額 ${minTotal} 元，是否確認結帳？`;
         if (!confirm(message)) {
-            checkoutBtn.innerText = originalText;
-            checkoutBtn.disabled = false;
+            newBtn.innerText = originalText;
+            newBtn.disabled = false;
             return;
         }
     }
 
-    // 更新最終應收金額
-    document.getElementById("posTotal").innerText =
-        formatNumber(result.finalAmount);
+    // 更新顯示
+    document.getElementById("posTotal").innerText = finalAmount;
+    document.getElementById("posTotal").dataset.value = finalAmount;
 
-    document.getElementById("posTotal").dataset.value =
-        result.finalAmount;
+    // 呼叫原本結帳流程
+    await startCheckoutFlow(newBtn, originalText);
 
-    try {
-        await startCheckoutFlow(checkoutBtn, originalText);
-    } catch (err) {
-        console.error(err);
-        alert("結帳發生錯誤，請稍後再試。");
-        checkoutBtn.innerText = originalText;
-        checkoutBtn.disabled = false;
-    }
-};
+});
 // 處理結帳流程的函式
 async function startCheckoutFlow(checkoutBtn, originalText) {
     try {
