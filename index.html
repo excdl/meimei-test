@@ -1728,91 +1728,74 @@ async function printerIsReady() {
     }
 }
 
-// ===== 結帳按鈕 handler（低消 300 特殊處理） =====
-(function () {
+// ===== 結帳按鈕 =====
+document.getElementById("posCheckout").onclick = async function () {
     const checkoutBtn = document.getElementById("posCheckout");
+    if (checkoutBtn.disabled) return;
+    const originalText = checkoutBtn.innerText;
+    checkoutBtn.disabled = true;
+    checkoutBtn.innerText = "結帳中...";
 
-    // 移除舊事件，避免重複觸發
-    const newBtn = checkoutBtn.cloneNode(true);
-    checkoutBtn.parentNode.replaceChild(newBtn, checkoutBtn);
+    // 檢查付款方式
+    const paymentMethod = document.getElementById("posPayment").value;
+    if (!paymentMethod) {
+        alert("請先選擇付款方式！");
+        checkoutBtn.innerText = originalText;
+        checkoutBtn.disabled = false;
+        return;
+    }
 
-    let minConsumeConfirmed = false; // 🔹 低消確認旗標
+    // 取得數值
+    const afterTax = parseNumber(document.getElementById("afterTax").innerText);
+    const discountVal = Number(document.getElementById("discount").value) || 0;
+    const actual = afterTax - discountVal;
 
-    newBtn.addEventListener("click", async function () {
-        if (newBtn.disabled) return;
+    const people = Number(document.getElementById("peopleCount")?.value) || 0;
+    const perMin = Number(document.getElementById("minConsumeInput")?.value) || 0;
+    const min = people * perMin;
 
-        const originalText = newBtn.innerText;
-        newBtn.disabled = true;
-        newBtn.innerText = "結帳中...";
+    let finalAmount;
+    if (perMin > 0 && perMin <= 300) {
+        finalAmount = actual + min;
+    } else {
+        finalAmount = Math.max(actual, min);
+    }
 
-        // ===== 付款方式檢查 =====
-        const paymentMethod = document.getElementById("posPayment").value;
-        if (!paymentMethod) {
-            alert("請先選擇付款方式！");
-            newBtn.innerText = originalText;
-            newBtn.disabled = false;
+    // 判斷最低消費提示（僅當 perMin > 300 才提示）
+    if (perMin > 300 && actual < min && !allowMinConsumeCheckout) {
+        const message = `您的消費金額為 ${actual} 元，低於最低消費額 ${min} 元，是否確認結帳？`;
+        if (!confirm(message)) {
+            checkoutBtn.innerText = originalText;
+            checkoutBtn.disabled = false;
             return;
         }
+        allowMinConsumeCheckout = true;
+        document.getElementById("afterTax").innerText = min;
+    } else {
+        allowMinConsumeCheckout = false;
+    }
 
-        // ===== 低消計算 =====
-        const afterTax = parseNumber(document.getElementById("afterTax").innerText);
-        const people = Number(document.getElementById("peopleCount")?.value) || 0;
-        const perMin = Number(document.getElementById("minConsumeInput")?.value) || 0;
-        const minTotal = people * perMin;
+    // 購物車為 0 的處理（perMin <= 300 時允許結帳）
+    if (posCart.length === 0 && perMin > 300) {
+        alert("購物車是空的。");
+        checkoutBtn.innerText = originalText;
+        checkoutBtn.disabled = false;
+        return;
+    }
 
-        let finalAmount = 0;
+    // 直接進入結帳流程
+    startCheckoutFlow(checkoutBtn, originalText);
+};
 
-        // 新規則：低消 300 為界
-        if (perMin > 0 && perMin <= 300) {
-            finalAmount = afterTax + minTotal;
-        } else {
-            finalAmount = Math.max(afterTax, minTotal);
-        }
 
-        // ===== 消費不足提示，只跳一次，顯示最終金額 =====
-        if (perMin > 0 && afterTax < minTotal && !minConsumeConfirmed) {
-            const message = `您的消費金額為 ${afterTax} 元，低於最低消費額 ${minTotal} 元。\n` +
-                            `按照新規則，結帳金額將為 ${finalAmount} 元。\n\n是否確認結帳？`;
-            if (!confirm(message)) {
-                newBtn.innerText = originalText;
-                newBtn.disabled = false;
-                return;
-            }
-            minConsumeConfirmed = true; // ⚡ 用戶已確認過，之後不再跳出
-        }
-
-        // 更新顯示總金額
-        document.getElementById("posTotal").innerText = finalAmount;
-        document.getElementById("posTotal").dataset.value = finalAmount;
-
-        // ===== 購物車為空處理 =====
-        if (posCart.length === 0 && perMin > 300) {
-            alert("購物車是空的。");
-            newBtn.innerText = originalText;
-            newBtn.disabled = false;
-            return;
-        }
-
-        // ===== 呼叫結帳流程 =====
-        try {
-            await startCheckoutFlow(newBtn, originalText, finalAmount);
-            minConsumeConfirmed = false; // 🔹 結帳完成後重置旗標
-        } catch (err) {
-            console.error("結帳流程發生錯誤：", err);
-            newBtn.innerText = originalText;
-            newBtn.disabled = false;
-        }
-    });
-})();
-    
-// 處理結帳流程的函式
+// ===== 結帳流程函式 =====
 async function startCheckoutFlow(checkoutBtn, originalText) {
     try {
-        // Step 1：結帳寫入試算表
+        // 1️⃣ 寫入試算表
         await sendCheckoutToSheet();
         setTimeout(updateTodaySales, 0);
 
-        // ===== 小票資料準備 =====
+        // 2️⃣ 小票資料
         const PRINTER_PROFILE = {
             "58": { charsPerLine: 32, nameWidth: 14, qtyWidth: 6, priceWidth: 6, subWidth: 6 },
             "80": { charsPerLine: 42, nameWidth: 20, qtyWidth: 6, priceWidth: 8, subWidth: 8 }
@@ -1865,90 +1848,59 @@ async function startCheckoutFlow(checkoutBtn, originalText) {
             }
         };
 
-        // 開始列印流程（這部分與原來相同）
-        if (window.qz) {
+        // 3️⃣ 列印流程（列印錯誤不會影響結帳成功）
+        if (window.qz || window.webkit?.messageHandlers?.posPrint) {
             setTimeout(async () => {
                 try {
-                    const printers = await qz.printers.find(); // 只抓一次
-
-                    await Promise.all(
-                        printers.map(async (printerName) => {
+                    if (window.qz) {
+                        const printers = await qz.printers.find();
+                        await Promise.all(printers.map(async printerName => {
                             let selectedSize = /80/.test(printerName) ? "80" : "58";
                             const profile = PRINTER_PROFILE[selectedSize];
-
                             const receiptText = buildReceiptText(receiptPayload, profile);
-
                             const esc = [
-                                '\x1B\x40',             // 初始化
-                                '\x1B\x61\x01',         // 置中
-                                "生鮮 POS 小票\n",
-                                '\x1B\x61\x00',         // 靠左
-                                receiptText + "\n",
-                                '\x1B\x64\x02',         // 捲紙
-                                '\x1B\x70\x00\x3C\xFF', // 開錢櫃
-                                '\x1D\x56\x42\x03'      // 切紙
+                                '\x1B\x40','\x1B\x61\x01',"生鮮 POS 小票\n",'\x1B\x61\x00',
+                                receiptText+"\n",'\x1B\x64\x02','\x1B\x70\x00\x3C\xFF','\x1D\x56\x42\x03'
                             ];
-
                             const config = qz.configs.create(printerName);
-                            await qz.print(config, [
-                                { type: 'raw', format: 'command', data: esc.join('') }
-                            ]);
-
-                            console.log(`✅ 列印完成：${printerName}`);
-                        })
-                    );
-                } catch (err) {
-                    console.error("列印失敗", err);
+                            await qz.print(config, [{ type:'raw', format:'command', data:esc.join('') }]);
+                        }));
+                    } else {
+                        window.webkit.messageHandlers.posPrint.postMessage(receiptPayload);
+                    }
+                } catch (printErr) {
+                    console.error("列印失敗", printErr);
                     alert("⚠️ 結帳成功，但列印失敗，請檢查印表機");
                 }
             }, 0);
-        } else if (window.webkit?.messageHandlers?.posPrint) {
-            window.webkit.messageHandlers.posPrint.postMessage(receiptPayload);
         }
 
-        // ⭐ 結帳提示（不等列印）
-        alert("結帳完成，已送出列印");
+        // 4️⃣ 成功提示
+        alert("✅ 結帳完成");
 
-        // ===== 結帳後清空所有欄位 =====
-        posCart = []; // 清空購物車
-
-        // 清空折扣
-        if (document.getElementById("discount")) document.getElementById("discount").value = "";
-
-        // 清空收現金與找零
-        if (document.getElementById("cashInput")) document.getElementById("cashInput").value = "";
-        if (document.getElementById("changeOut")) document.getElementById("changeOut").innerText = "0";
-
-        // 重置人數回到1
+        // 5️⃣ 清空購物車、欄位
+        posCart = [];
+        document.getElementById("discount")?.value = "";
+        document.getElementById("cashInput")?.value = "";
+        document.getElementById("changeOut")?.innerText = "0";
         document.getElementById("peopleCount").value = "0";
-
-        // ⭐ 清空存酒人員姓名與手機
-        if (document.getElementById("customerName")) document.getElementById("customerName").value = "";
-        if (document.getElementById("customerPhone")) document.getElementById("customerPhone").value = "";
-
-        // ⭐⭐ 重設業代為登入預設值
-        fetchSalesList(); // 不等
-
-        // 重新渲染購物車（清空後）
-        if (typeof renderCart === "function") renderCart();
-
-        // ⭐⭐⭐ 結帳完成後，收款方式回到「現金」
+        document.getElementById("customerName")?.value = "";
+        document.getElementById("customerPhone")?.value = "";
+        fetchSalesList();
+        renderCart?.();
         document.querySelector('#paymentButtons .payBtn[data-pay="現金"]')?.click();
 
-        // 完成後，恢復結帳按鈕狀態
+        // 6️⃣ 恢復結帳按鈕
         checkoutBtn.innerText = originalText;
         checkoutBtn.disabled = false;
 
     } catch (error) {
         console.error("結帳過程中發生錯誤：", error);
-        alert("結帳失敗，請重試。");
-
-        // 確保按鈕在錯誤後仍然可以重新點擊
+        alert("❌ 結帳失敗，請重試。");
         checkoutBtn.innerText = originalText;
         checkoutBtn.disabled = false;
     }
-};
-
+}
   
 
 </script>
